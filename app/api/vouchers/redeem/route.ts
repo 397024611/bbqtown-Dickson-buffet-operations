@@ -3,6 +3,31 @@ import { ensureVoucherSchema } from "../../_lib/vouchers";
 
 export const dynamic = "force-dynamic";
 
+export async function GET(request: Request) {
+  if (!authorized(request)) return Response.json({ error: "Staff sign-in required" }, { status: 401 });
+  try {
+    const sql = await ensureVoucherSchema();
+    const [stats] = await sql`
+      SELECT
+        count(*)::int AS total_issued,
+        count(*) FILTER (WHERE voucher_date = (now() AT TIME ZONE 'Australia/Sydney')::date)::int AS issued_today,
+        count(*) FILTER (WHERE status = 'issued' AND expires_at > now())::int AS active,
+        count(*) FILTER (WHERE status = 'redeemed')::int AS redeemed,
+        count(*) FILTER (WHERE status = 'issued' AND expires_at <= now())::int AS expired
+      FROM street_vouchers
+    `;
+    return Response.json({
+      totalIssued: Number(stats?.total_issued || 0),
+      issuedToday: Number(stats?.issued_today || 0),
+      active: Number(stats?.active || 0),
+      redeemed: Number(stats?.redeemed || 0),
+      expired: Number(stats?.expired || 0),
+    });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Unable to load voucher stats" }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Staff sign-in required" }, { status: 401 });
   const { code, staff } = await request.json() as { code?: string; staff?: string };
