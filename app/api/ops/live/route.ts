@@ -118,8 +118,13 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const sql = await ensureOpsSchema();
-    const expected = Number(body.expectedUpdatedAt || 0);
+    const requestedExpected = Number(body.expectedUpdatedAt || 0);
     const action = String(body.action || "");
+    // Runtime floor/kitchen actions are item-scoped and already have their own SQL
+    // preconditions. A global service-version CAS caused unrelated tablets to
+    // conflict with each other and could permanently wedge the offline queue.
+    // Keep optimistic concurrency only for manager dish-definition changes.
+    const expected = action.startsWith("dish_") ? requestedExpected : 0;
     const mutationId = String(body.mutationId || "").trim().slice(0, 160);
     const responseSection = sectionValue(body.responseSection);
     const includeLogs = body.includeLogs !== false;
@@ -363,8 +368,24 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unknown action" }, { status: 400 });
     }
 
-    const version = successVersion(result);
-    if (!version) return conflict(sql, responseOptions);
+    let version = successVersion(result);
+    if (!version) {
+      const operationalAction = ["status", "kitchen_prepare", "kitchen_ready", "refilled", "start_all", "close_all"].includes(action);
+      if (mutationId && operationalAction) {
+        // A queued operation can become obsolete because another tablet already
+        // performed the same or a later state transition. Treat that as a
+        // resolved no-op instead of returning 409 forever.
+        const [service] = await sql`SELECT version FROM buffet_service WHERE id=1`;
+        version = Number(service?.version || Date.now());
+        await sql`
+          INSERT INTO ops_mutations(mutation_id,created_at,device_id,response_version)
+          VALUES (${mutationId},${now},${deviceId},${version})
+          ON CONFLICT (mutation_id) DO UPDATE SET response_version=GREATEST(ops_mutations.response_version,EXCLUDED.response_version)
+        `;
+        return Response.json({ ...(await readState(sql, { ...responseOptions, knownVersion: version })), resolvedStaleMutation: true });
+      }
+      return conflict(sql, responseOptions);
+    }
 
     if (mutationId) {
       await sql`
