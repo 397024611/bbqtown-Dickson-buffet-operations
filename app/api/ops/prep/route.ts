@@ -46,6 +46,13 @@ export async function POST(request:Request){
 
     if(mutationId){
       await ensureMutationPayload(sql);
+      // If a previous request claimed an idempotency key but never stored its
+      // response (network/server interruption or a no-op update), do not leave
+      // every device retrying HTTP 409 forever.
+      await sql`DELETE FROM ops_mutations
+                WHERE mutation_id=${mutationId}
+                  AND response_payload='{}'::jsonb
+                  AND created_at < ${now-10_000}`;
       const replay=await replayMutation(sql,mutationId);
       if(replay&&!(replay as any).error)return Response.json(replay);
       if(replay&&(replay as any).error==='MUTATION_IN_PROGRESS')return Response.json(replay,{status:409});
