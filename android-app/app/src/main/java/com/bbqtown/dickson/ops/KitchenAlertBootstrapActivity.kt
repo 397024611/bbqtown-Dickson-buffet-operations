@@ -75,6 +75,7 @@ object KitchenAlertMonitor {
             var initialized = false
             var seenRequests = emptySet<String>()
             var lastAlertAt = 0L
+            var lastBackgroundRefreshAt = 0L
 
             while (isActive) {
                 val section = when (rolePrefs.getString("role", "")) {
@@ -109,20 +110,31 @@ object KitchenAlertMonitor {
                     continue
                 }
 
-                val requested = api.cachedLive(section)?.foods.orEmpty()
+                val now = System.currentTimeMillis()
+                val latest = if (!KitchenBoardPresence.active && now - lastBackgroundRefreshAt >= 4_000L) {
+                    lastBackgroundRefreshAt = now
+                    runCatching { api.loadLive(section) }.getOrNull() ?: api.cachedLive(section)
+                } else {
+                    api.cachedLive(section)
+                }
+                val requested = latest?.foods.orEmpty()
                     .filter { it.section == section && it.kitchen == "requested" }
+                    .sortedBy { it.name.lowercase() }
                 val requestKeys = requested.map { "${it.id}:${it.requestedAt}" }.toSet()
                 val newRequests = requested.filter { "${it.id}:${it.requestedAt}" !in seenRequests }
-                val now = System.currentTimeMillis()
 
                 when {
                     newRequests.isNotEmpty() -> {
-                        playAlert(app, urgent = newRequests.any { it.status == "EMPTY" })
+                        playAlert(app, urgent = newRequests.any { it.status == "EMPTY" }, dishes = newRequests.map { it.name })
                         lastAlertAt = now
                     }
-                    requested.isNotEmpty() && now - lastAlertAt >= 60_000L -> {
-                        playAlert(app, urgent = requested.any { it.status == "EMPTY" })
+                    requested.isNotEmpty() && now - lastAlertAt >= if (requested.any { it.status == "EMPTY" }) 20_000L else 30_000L -> {
+                        playAlert(app, urgent = requested.any { it.status == "EMPTY" }, dishes = requested.map { it.name })
                         lastAlertAt = now
+                    }
+                    requested.isEmpty() -> {
+                        KitchenAlertChannels.clearKitchen(app)
+                        lastAlertAt = 0L
                     }
                 }
 
@@ -132,16 +144,16 @@ object KitchenAlertMonitor {
         }
     }
 
-    private suspend fun playAlert(context: Context, urgent: Boolean) {
-        KitchenAlertChannels.notifyKitchen(context, urgent)
+    private suspend fun playAlert(context: Context, urgent: Boolean, dishes: List<String>) {
+        KitchenAlertChannels.notifyKitchen(context, urgent, dishes)
         try {
             val toneType = if (urgent) ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD else ToneGenerator.TONE_PROP_BEEP2
-            val repeats = if (urgent) 3 else 2
+            val repeats = if (urgent) 5 else 3
             val tone = ToneGenerator(AudioManager.STREAM_ALARM, 100)
             try {
                 repeat(repeats) {
-                    tone.startTone(toneType, if (urgent) 420 else 300)
-                    delay(if (urgent) 560 else 440)
+                    tone.startTone(toneType, if (urgent) 520 else 420)
+                    delay(if (urgent) 680 else 560)
                 }
             } finally {
                 tone.release()
@@ -151,7 +163,7 @@ object KitchenAlertMonitor {
 
         try {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            val pattern = if (urgent) longArrayOf(0, 220, 120, 220, 120, 320) else longArrayOf(0, 180, 120, 180)
+            val pattern = if (urgent) longArrayOf(0, 350, 120, 350, 120, 650, 160, 650) else longArrayOf(0, 280, 130, 280, 130, 420)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
             } else {

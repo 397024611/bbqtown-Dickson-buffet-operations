@@ -403,37 +403,71 @@ class AppUpdateActivity : ComponentActivity() {
 }
 
 object KitchenAlertChannels {
-    const val LOW = "kitchen_refill_low"
-    const val EMPTY = "kitchen_refill_empty"
+    const val LOW = "kitchen_refill_low_v2"
+    const val EMPTY = "kitchen_refill_empty_v2"
     const val UPDATE = "app_updates"
 
     fun ensure(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val alarmUri = Settings.System.DEFAULT_ALARM_ALERT_URI
-        val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-        val low = NotificationChannel(LOW, "Kitchen LOW refill", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "LOW buffet refill requests"; enableVibration(true); vibrationPattern = longArrayOf(0, 180, 120, 180); setSound(alarmUri, attributes)
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        val low = NotificationChannel(LOW, "Kitchen refill · LOW", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Persistent LOW buffet refill requests"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 280, 130, 280, 130, 420)
+            setSound(alarmUri, attributes)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        val empty = NotificationChannel(EMPTY, "Kitchen EMPTY urgent", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "EMPTY buffet urgent refill requests"; enableVibration(true); vibrationPattern = longArrayOf(0, 220, 120, 220, 120, 320); setSound(alarmUri, attributes)
+        val empty = NotificationChannel(EMPTY, "Kitchen refill · EMPTY URGENT", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Urgent EMPTY buffet refill requests"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 350, 120, 350, 120, 650, 160, 650)
+            setSound(alarmUri, attributes)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         val update = NotificationChannel(UPDATE, "App updates", NotificationManager.IMPORTANCE_DEFAULT)
         manager.createNotificationChannels(listOf(low, empty, update))
     }
 
-    fun notifyKitchen(context: Context, urgent: Boolean) {
+    fun notifyKitchen(context: Context, urgent: Boolean, dishes: List<String> = emptyList()) {
         ensure(context)
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val launch = Intent(context, KitchenBoardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pending = PendingIntent.getActivity(context, if (urgent) 22002 else 22001, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val channel = if (urgent) EMPTY else LOW
+        val names = dishes.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val first = names.firstOrNull()
+        val title = when {
+            urgent && first != null -> "URGENT · EMPTY · $first"
+            urgent -> "URGENT · EMPTY DISH"
+            first != null -> "LOW · REFILL · $first"
+            else -> "LOW · REFILL REQUEST"
+        }
+        val text = when {
+            names.size > 1 -> "${names.size} dishes waiting · ${names.take(3).joinToString(", ")}"
+            urgent -> "Buffet tray is EMPTY · start preparing now"
+            else -> "Buffet tray is LOW · prepare the next tray"
+        }
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(context, channel) else Notification.Builder(context)
         builder.setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle(if (urgent) "EMPTY · urgent refill" else "LOW · refill request")
-            .setContentText("Open Kitchen board to accept the task")
+            .setContentTitle(title)
+            .setContentText(text)
             .setContentIntent(pending)
-            .setAutoCancel(true)
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(if (urgent) 22102 else 22101, builder.build())
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setPriority(Notification.PRIORITY_MAX)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setAutoCancel(false)
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(if (urgent) 22102 else 22101, builder.build())
+    }
+
+    fun clearKitchen(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(22101)
+        manager.cancel(22102)
     }
 }

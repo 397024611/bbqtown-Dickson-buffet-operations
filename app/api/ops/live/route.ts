@@ -51,13 +51,13 @@ async function readState(sql: Sql, options: ReadOptions = {}) {
         SELECT id,name,category,section,status,kitchen,start_at,requested_at,preparing_at,ready_at,stopped_at,closed_at
         FROM buffet_foods
         WHERE active=true AND section=${section}
-        ORDER BY sort_order,id
+        ORDER BY lower(name), name, id
       `
     : await sql`
         SELECT id,name,category,section,status,kitchen,start_at,requested_at,preparing_at,ready_at,stopped_at,closed_at
         FROM buffet_foods
         WHERE active=true
-        ORDER BY sort_order,id
+        ORDER BY lower(name), name, id
       `;
 
   let logs: any[] = [];

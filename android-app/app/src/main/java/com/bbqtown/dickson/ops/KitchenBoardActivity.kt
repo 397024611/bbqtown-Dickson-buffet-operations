@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 object KitchenBoardPresence {
     @Volatile var active: Boolean = false
@@ -121,11 +122,11 @@ private fun KitchenBoardScreen(onDevice: () -> Unit) {
     }
 
     val tasks = (snap?.foods ?: emptyList()).filter { it.section == section && it.kitchen != "idle" }
-    val requested = tasks.filter { it.kitchen == "requested" }
-        .sortedWith(compareByDescending<FFood> { it.status == "EMPTY" }.thenBy { it.requestedAt })
-    val preparing = tasks.filter { it.kitchen == "preparing" }.sortedBy { it.requestedAt }
-    val ready = tasks.filter { it.kitchen == "ready" }.sortedBy { it.requestedAt }
+    val requested = tasks.filter { it.kitchen == "requested" }.sortedBy { it.name.lowercase(Locale.ROOT) }
+    val preparing = tasks.filter { it.kitchen == "preparing" }.sortedBy { it.name.lowercase(Locale.ROOT) }
+    val ready = tasks.filter { it.kitchen == "ready" }.sortedBy { it.name.lowercase(Locale.ROOT) }
     val urgent = requested.count { it.status == "EMPTY" || (it.requestedAt > 0 && now - it.requestedAt >= 5 * 60 * 1000L) }
+    val hasEmpty = requested.any { it.status == "EMPTY" }
 
     Column(Modifier.fillMaxSize().background(BrandInk)) {
         KitchenTopBar(
@@ -138,6 +139,10 @@ private fun KitchenBoardScreen(onDevice: () -> Unit) {
             error = error,
             onDevice = onDevice
         )
+
+        if (requested.isNotEmpty()) {
+            KitchenAttentionBanner(requested.size, hasEmpty)
+        }
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
             if (maxWidth >= 820.dp) {
@@ -189,6 +194,44 @@ private fun KitchenBoardScreen(onDevice: () -> Unit) {
                         KitchenLane("READY TO REFILL", "Waiting for FOH", BrandGreen, ready, now, Modifier.width(310.dp).fillParentMaxHeight(), null)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KitchenAttentionBanner(count: Int, hasEmpty: Boolean) {
+    val accent = if (hasEmpty) BrandRed else Color(0xFFF59E0B)
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        color = accent,
+        shape = RoundedCornerShape(14.dp),
+        shadowElevation = 7.dp
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(color = Color.White, shape = CircleShape) {
+                Text("!", color = accent, fontWeight = FontWeight.Black, fontSize = 24.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 4.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (hasEmpty) "EMPTY DISH · ACTION REQUIRED" else "REFILL REQUEST · ACTION REQUIRED",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp
+                )
+                Text(
+                    if (hasEmpty) "Start preparing immediately" else "Kitchen has a new LOW request waiting",
+                    color = Color.White.copy(alpha = .88f),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+            }
+            Surface(color = Color.White, shape = RoundedCornerShape(12.dp)) {
+                Text(count.toString(), color = accent, fontWeight = FontWeight.Black, fontSize = 22.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
             }
         }
     }
@@ -356,10 +399,10 @@ private fun KitchenTaskCard(food: FFood, now: Long, laneAccent: Color, onAction:
             when {
                 food.kitchen == "requested" && onAction != null -> Button(
                     onClick = { onAction(food) },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandInk),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (urgent) BrandRed else BrandGold),
                     shape = RoundedCornerShape(10.dp)
-                ) { Text("START PREPARING", fontWeight = FontWeight.Black, fontSize = 11.sp) }
+                ) { Text("START PREPARING", color = if (urgent) Color.White else BrandInk, fontWeight = FontWeight.Black, fontSize = 12.sp) }
 
                 food.kitchen == "preparing" && onAction != null -> Button(
                     onClick = { onAction(food) },

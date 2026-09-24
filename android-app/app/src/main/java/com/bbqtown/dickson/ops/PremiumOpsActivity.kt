@@ -219,11 +219,11 @@ private fun PremiumFloor(api: FastApi, onDevice: () -> Unit, onPrep: () -> Unit)
         }
     }
 
-    val foods = snap?.foods ?: emptyList()
+    val foods = (snap?.foods ?: emptyList()).sortedBy { it.name.lowercase(Locale.ROOT) }
     val low = foods.count { it.status == "LOW" }
     val empty = foods.count { it.status == "EMPTY" }
     val ready = foods.count { it.kitchen == "ready" }
-    val cats = listOf("ALL") + foods.map { it.category }.distinct()
+    val cats = listOf("ALL") + foods.map { it.category }.distinct().sortedBy { it.lowercase(Locale.ROOT) }
 
     Column(Modifier.fillMaxSize().background(BrandCream)) {
         PremiumHeader("FOH FLOOR", "Buffet command centre · local-first", onDevice) {
@@ -356,7 +356,7 @@ private fun PremiumKitchen(api: FastApi, section: Int, onDevice: () -> Unit, onP
     }
 
     val tasks = (snap?.foods ?: emptyList()).filter { it.section == section && it.kitchen != "idle" }
-        .sortedWith(compareBy<FFood>({ it.kitchen == "ready" }, { it.kitchen == "preparing" }, { it.requestedAt }))
+        .sortedBy { it.name.lowercase(Locale.ROOT) }
     val urgent = tasks.count { it.status == "EMPTY" || (it.requestedAt > 0 && now - it.requestedAt >= 5 * 60 * 1000L) }
 
     Column(Modifier.fillMaxSize().background(BrandInk)) {
@@ -576,7 +576,7 @@ private fun PremiumDishSetup(api: FastApi, onBack: () -> Unit) {
         }
         error?.let { Text(it, color = BrandRed, modifier = Modifier.padding(14.dp)) }
         LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(snap?.foods ?: emptyList(), key = { it.id }) { f ->
+            items((snap?.foods ?: emptyList()).sortedBy { it.name.lowercase(Locale.ROOT) }, key = { it.id }) { f ->
                 Surface(Modifier.fillMaxWidth().clickable { edit = f }, color = BrandSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BrandLine)) {
                     Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) { Text(f.name, color = BrandInk, fontWeight = FontWeight.Black, fontSize = 15.sp); Text("${f.category} · KITCHEN ${f.section}", color = BrandMuted, fontSize = 9.sp) }
