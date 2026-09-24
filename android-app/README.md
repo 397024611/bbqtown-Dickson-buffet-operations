@@ -9,3 +9,5 @@ Intentionally excluded from the APK: customer reservations and voucher verificat
 Stable signing bootstrap: Actions builds publish to the in-app update channel only when the repository signing secrets are configured.
 
 Alpha5.12 build retry marker: fresh workflow.
+
+alpha5.12 PR build trigger.
