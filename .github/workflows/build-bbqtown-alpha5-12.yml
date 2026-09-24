@@ -1,6 +1,8 @@
 name: Build BBQ Town Ops APK alpha5.12
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   pull_request:
     branches: [main]
     paths:
