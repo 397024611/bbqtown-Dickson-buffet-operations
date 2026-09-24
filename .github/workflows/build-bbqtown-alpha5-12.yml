@@ -1,6 +1,10 @@
 name: Build BBQ Town Ops APK alpha5.12
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'android-app/**'
   push:
     branches: [main]
     paths:
