@@ -1,10 +1,6 @@
 name: Build BBQ Town Ops APK
 
 on:
-  issues:
-    types: [opened]
-  schedule:
-    - cron: '*/5 * * * *'
   push:
     branches: [main]
     paths:
