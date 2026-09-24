@@ -1,0 +1,94 @@
+name: Build BBQ Town Ops alpha5.12 one-shot
+
+on:
+  workflow_run:
+    workflows: ["Build BBQ Town Ops APK"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  build-current-main:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Accept Android SDK licenses
+        run: yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android platform
+        run: /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore stable signing key
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/bbqtown-release.p12"
+          chmod 600 "$RUNNER_TEMP/bbqtown-release.p12"
+          echo "path=$RUNNER_TEMP/bbqtown-release.p12" >> "$GITHUB_OUTPUT"
+
+      - name: Build stable signed release APK
+        working-directory: android-app
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.signing.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease
+
+      - name: Rename APK
+        run: cp android-app/app/build/outputs/apk/release/app-release.apk BBQTown-Dickson-Ops.apk
+
+      - name: Read app version
+        id: version
+        shell: bash
+        run: |
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' android-app/app/build.gradle.kts | head -1)
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' android-app/app/build.gradle.kts | head -1)
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          test "$VERSION_CODE" = "23"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BBQTown-Dickson-Ops-alpha5.12
+          path: BBQTown-Dickson-Ops.apk
+          retention-days: 30
+
+      - name: Publish stable in-app update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        shell: bash
+        run: |
+          TAG="ops-v${VERSION_CODE}"
+          NOTES="BBQTOWN_SIGNED_RELEASE\nBBQ Town Dickson operations app build ${VERSION_CODE}. Stronger kitchen alerts and A-Z dish ordering."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" BBQTown-Dickson-Ops.apk --clobber
+            gh release edit "$TAG" --title "BBQ Town Ops ${VERSION_NAME}" --notes "$NOTES" --latest
+          else
+            gh release create "$TAG" BBQTown-Dickson-Ops.apk --title "BBQ Town Ops ${VERSION_NAME}" --notes "$NOTES" --latest
+          fi
