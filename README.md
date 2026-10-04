@@ -26,3 +26,5 @@ npm install
 npm run dev
 npm run build
 ```
+
+<!-- Vercel Git integration verification: 2026-10-04 -->
